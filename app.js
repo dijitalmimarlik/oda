@@ -66,6 +66,13 @@ function init() {
   const ambientIsik = new THREE.AmbientLight(0xffffff, 0.6);
   scene.add(ambientIsik);
 
+   // TEST KÜBÜ
+const geometry = new THREE.BoxGeometry(1, 1, 1);
+const material = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Kırmızı renk
+const cube = new THREE.Mesh(geometry, material);
+cube.position.set(0, 1.6, -2); // Kameranın tam önü
+scene.add(cube);
+
   // ---------- RENDERER ----------
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
