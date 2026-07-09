@@ -121,6 +121,29 @@ function init() {
     "oda.glb",
     function (gltf) {
       scene.add(gltf.scene);
+
+      // ---------- KAMERAYI MODELE GÖRE OTOMATİK KONUMLANDIR ----------
+      // Blender'dan export edilen model sahne merkezinde (0,0,0) olmayabilir
+      // ya da beklenmedik bir ölçekte olabilir. Bu yüzden modelin gerçek
+      // sınırlayıcı kutusunu (bounding box) hesaplayıp kamerayı ona göre
+      // yerleştiriyoruz, sabit bir konuma güvenmek yerine.
+      const sinirKutusu = new THREE.Box3().setFromObject(gltf.scene);
+      const merkez = sinirKutusu.getCenter(new THREE.Vector3());
+      const boyut = sinirKutusu.getSize(new THREE.Vector3());
+
+      // Konsola yazdır: model gerçekten nerede ve ne boyutta, kontrol edebilmek için
+      console.log("Model sınır kutusu - merkez:", merkez, "boyut:", boyut);
+
+      // Rig'i modelin merkezine, taban (min.y) seviyesine yerleştir.
+      // Göz yüksekliği zaten camera.position.y = 1.6 (rig'e göre yerel) ile sağlanıyor.
+      cameraRig.position.set(merkez.x, sinirKutusu.min.y, merkez.z);
+
+      // Modelin boyutuna göre kameranın "far" (görüş uzaklığı) değerini güvenli şekilde ayarla.
+      // Çok büyük veya çok küçük ölçekli modellerde nesnelerin kesilmesini/kaybolmasını önler.
+      const enBuyukBoyut = Math.max(boyut.x, boyut.y, boyut.z, 1);
+      camera.far = Math.max(1000, enBuyukBoyut * 10);
+      camera.near = enBuyukBoyut / 1000;
+      camera.updateProjectionMatrix();
     },
     function (xhr) {
       // Yükleme ilerlemesi (isteğe bağlı konsol bilgisi)
