@@ -1,31 +1,97 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VR Web Projesi</title>
-    <style>
-        /* Tarayıcı kenarlık boşluklarını sıfırlayıp kaydırma çubuklarını gizler */
-        body {
-            margin: 0;
-            overflow: hidden;
-            background-color: #000;
-        }
-        /* 3D sahnenin çizileceği alanı ekranı kaplayacak şekilde ayarlar */
-        canvas {
-            display: block;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>3D Sanal Tur - Emlak</title>
+
+  <style>
+    /* Sayfa ve canvas tam ekran, kaydırma çubukları olmasın */
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    /* İlk kullanıcı etkileşimini almak için tam ekran kaplayan başlangıç katmanı */
+    #baslangicKatmani {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.75);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      z-index: 999;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    #baslangicKatmani h1 {
+      font-size: 22px;
+      margin-bottom: 10px;
+    }
+
+    #baslangicKatmani p {
+      font-size: 14px;
+      opacity: 0.8;
+      max-width: 80%;
+    }
+
+    /* Mobil hareket için ekranın alt kısmına basılı tutma alanı ipucu */
+    #kontrolBilgisi {
+      position: absolute;
+      bottom: 15px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #fff;
+      background: rgba(0,0,0,0.4);
+      padding: 8px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      z-index: 10;
+      pointer-events: none;
+    }
+  </style>
 </head>
 <body>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/webxr/VRButton.js"></script>
-    
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
-    <script src="app.js"></script>
+  <!-- Kullanıcı tıklayana/dokunana kadar gösterilen katman: hem VRButton görünsün hem de ses politikası için tıklama alınsın -->
+  <div id="baslangicKatmani">
+    <h1>Sanal Tura Hoş Geldiniz</h1>
+    <p>
+      Başlamak için tıklayın / dokunun.<br />
+      PC: WASD veya yön tuşları ile yürüyün, fare ile bakın.<br />
+      Mobil: Ekrana basılı tutarak baktığınız yöne ilerleyin.
+    </p>
+  </div>
+
+  <div id="kontrolBilgisi">Basılı tut ve ilerle</div>
+
+  <!-- ============ THREE.JS r128 ve EK KÜTÜPHANELER (CDN) ============ -->
+  <!-- Ana Three.js kütüphanesi -->
+  <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+  <!-- GLTF modelleri yüklemek için -->
+  <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <!-- Fare ile bakış kontrolü için -->
+  <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- WebXR "Enter VR" butonu için -->
+  <script src="https://unpkg.com/three@0.128.0/examples/js/webxr/VRButton.js"></script>
+
+  <!-- Kendi uygulama kodumuz -->
+  <script src="app.js"></script>
 </body>
 </html>
