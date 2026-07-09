@@ -1,172 +1,337 @@
-// ==========================================
-// 1. SAHNE, KAMERA VE TAŞIYICI (RIG) KURULUMU
-// ==========================================
-const scene = new THREE.Scene();
+/* ==========================================================
+   3D / VR SANAL TUR UYGULAMASI
+   - Işınlanma (teleport) YOK, serbest yürüme VAR
+   - Çarpışma algılama YOK
+   - PC (WASD + fare), Mobil (dokunma), VR (joystick) desteği
+   - Arka plan müziği (kullanıcı etkileşimiyle başlar)
+   ========================================================== */
 
-// Kamera Taşıyıcısı (Kullanıcı hareket ettiğinde kamerayı ve kontrolcüleri birlikte yürütmek için bir grup oluşturuyoruz)
-const cameraRig = new THREE.Group();
-scene.add(cameraRig);
+// ---------- GENEL DEĞİŞKENLER ----------
+let scene, camera, renderer, controls;
+let cameraRig; // Kamerayı içinde barındıran ve hareket ettirilen grup
+let clock;
 
-// Perspektif Kamera Kurulumu
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 1.6, 0); // Kamera yüksekliği insan göz hizası olan 1.6 metreye ayarlanır
-cameraRig.add(camera); // Kamera, taşıyıcı grubun içerisine dahil edilir
+// Klavye tuş durumlarını tutan nesne (PC hareketi için)
+const tuşlar = {
+  ileri: false,
+  geri: false,
+  sol: false,
+  sag: false
+};
 
-// ==========================================
-// 2. RENDERER (İŞLEYİCİ) VE VR AYARLARI
-// ==========================================
-const renderer = new THREE.WebGLRenderer({ antialias: true }); // Kenar yumuşatma açık
-renderer.setSize(window.innerWidth, window.innerHeight);
+// Mobilde parmak basılı mı bilgisini tutan bayrak
+let mobilHareketAktif = false;
 
-// Blender'da pişirilen (bake edilen) dokuların doğru renk tonlarında görünmesi için sRGB renk alanı seçilir
-renderer.outputEncoding = THREE.sRGBEncoding;
+// Hareket hızı (metre/saniye)
+const HAREKET_HIZI = 2.0;
 
-// Sanal gerçeklik (WebXR) desteği aktif hale getirilir
-renderer.xr.enabled = true;
+// Müzik ile ilgili değişkenler
+let sesDinleyici, arkaPlanMuzigi;
+let muzikBaslatildiMi = false;
 
-// Çizim yapılan canvas elementi HTML sayfasına eklenir
-document.body.appendChild(renderer.domElement);
+init();
 
-// VR giriş butonu HTML sayfasına dahil edilir
-document.body.appendChild(VRButton.createButton(renderer));
+/* ==========================================================
+   SAHNE KURULUMU
+   ========================================================== */
+function init() {
+  clock = new THREE.Clock();
 
-// ==========================================
-// 3. IŞIKLANDIRMA
-// ==========================================
-// Gölgeler dokuya pişirildiği için ağır dinamik ışıklar yerine sadece modeli görünür kılacak hafif bir ortam ışığı eklenir
-const ambientLight = new THREE.AmbientLight(0xffffff, 1.0); // Beyaz renk, tam yoğunluk
-scene.add(ambientLight);
+  // ---------- SAHNE ----------
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x202020);
 
-// ==========================================
-// 4. PC VE MOBİL İÇİN BAKIŞ KONTROLLERİ
-// ==========================================
-const controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 1.6, -0.01); // Kameranın kendi ekseninde rahat dönebilmesi için hedef tam önüne konumlandırılır
-controls.enableDamping = true; // Dönüş hareketlerine yumuşak bir sürtünme efekti verir
-controls.dampingFactor = 0.05;
-controls.update();
+  // ---------- KAMERA ----------
+  camera = new THREE.PerspectiveCamera(
+    70,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+  );
+  // Göz hizası: 1.6 metre (kameranın rig içindeki YEREL yüksekliği)
+  camera.position.set(0, 1.6, 0);
 
-// ==========================================
-// 5. BLENDER MODELİNİN (.GLB) SAHNEYE YÜKLENMESİ
-// ==========================================
-const loader = new THREE.GLTFLoader();
-loader.load(
-    'oda.glb', 
+  // ---------- KAMERA RIG (HAREKET GRUBU) ----------
+  // Hareket ettirdiğimiz şey kamera değil, bu grup olacak.
+  // VR modunda başörtüsü (headset) kendi konumunu kamera üzerine ekler,
+  // rig'i taşımak "oyuncuyu" sahnede taşımak anlamına gelir.
+  cameraRig = new THREE.Group();
+  cameraRig.position.set(0, 0, 3); // Başlangıç konumu (odanın içine bakacak şekilde ayarlanabilir)
+  cameraRig.add(camera);
+  scene.add(cameraRig);
+
+  // ---------- IŞIKLANDIRMA ----------
+  // Model Blender'da bake edildiği için SADECE zayıf bir ambient light yeterli.
+  // Ağır directional/point light EKLEME - dokular zaten ışığı içeriyor.
+  const ambientIsik = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(ambientIsik);
+
+  // ---------- RENDERER ----------
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  // Renklerin doğru (sRGB) görünmesi için gerekli ayar
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  // WebXR (VR) desteğini aç
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
+
+  // VR giriş butonunu sayfaya ekle
+  document.body.appendChild(THREE.VRButton.createButton(renderer));
+
+  // ---------- FARE İLE BAKIŞ (OrbitControls hilesi) ----------
+  // OrbitControls normalde kamerayı bir hedef etrafında DÖNDÜRÜP UZAKLIK ile konumlandırır.
+  // Biz mesafeyi (radius) neredeyse sıfıra sabitleyerek bunu "yerinde etrafına bakma" (FPS look)
+  // kontrolüne çeviriyoruz. Böylece kamera pozisyonu sabit kalır, sadece yönü değişir.
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 1.6, -0.01); // Kameranın hemen önünde sabit bir hedef (yerel koordinat)
+  controls.minDistance = 0.01;
+  controls.maxDistance = 0.01;
+  controls.enablePan = false; // Sağ tık ile kaydırmayı kapat
+  controls.enableZoom = false; // Fare tekerleği ile yakınlaşmayı kapat
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.1;
+  controls.rotateSpeed = 0.5;
+
+  // ---------- 3D MODELİ YÜKLE (oda.glb) ----------
+  const yukleyici = new THREE.GLTFLoader();
+  yukleyici.load(
+    "oda.glb",
     function (gltf) {
-        // Model sorunsuz yüklendiğinde sahneye eklenir
-        scene.add(gltf.scene);
-    }, 
-    undefined, 
-    function (error) {
-        // Olası bir yükleme hatası tarayıcı konsoluna yazdırılır
-        console.error('Model yüklenirken bir hata oluştu:', error);
+      scene.add(gltf.scene);
+    },
+    function (xhr) {
+      // Yükleme ilerlemesi (isteğe bağlı konsol bilgisi)
+      console.log("Model yükleniyor: " + Math.round((xhr.loaded / xhr.total) * 100) + "%");
+    },
+    function (hata) {
+      console.error("oda.glb yüklenirken hata oluştu:", hata);
     }
-);
+  );
 
-// ==========================================
-// 6. HAREKET MEKANİZMASI VE DİNLEYİCİLER
-// ==========================================
-const tuslar = { ileri: false, geri: false, sol: false, sag: false };
-const yurumeHizi = 0.03; // Kare başına ilerleme miktarı (Yürüme hızı)
+  // ---------- MÜZİK SİSTEMİ ----------
+  sesKurulumu();
 
-// PC Klavye Tuş Basışları
-window.addEventListener('keydown', (e) => {
-    if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') tuslar.ileri = true;
-    if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') tuslar.geri = true;
-    if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') tuslar.sol = true;
-    if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') tuslar.sag = true;
-});
+  // ---------- KLAVYE OLAYLARI (PC) ----------
+  document.addEventListener("keydown", tusaBasildi);
+  document.addEventListener("keyup", tusBirakildi);
 
-// PC Klavye Tuş Bırakılışları
-window.addEventListener('keyup', (e) => {
-    if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') tuslar.ileri = false;
-    if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') tuslar.geri = false;
-    if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') tuslar.sol = false;
-    if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') tuslar.sag = false;
-});
+  // ---------- DOKUNMATİK OLAYLAR (Mobil) ----------
+  // Ekrana basılı tutulduğu sürece ileri yürüme
+  renderer.domElement.addEventListener("touchstart", dokunmaBasladi, { passive: true });
+  renderer.domElement.addEventListener("touchend", dokunmaBitti, { passive: true });
+  renderer.domElement.addEventListener("touchcancel", dokunmaBitti, { passive: true });
 
-// Mobil Cihazlar İçin Dokunma Hareketi (Ekrana basılı tutulduğu sürece ileri yürür)
-let mobilIleri = false;
-window.addEventListener('touchstart', () => { mobilIleri = true; });
-window.addEventListener('touchend', () => { mobilIleri = false; });
+  // ---------- İLK KULLANICI ETKİLEŞİMİ (müzik + başlangıç katmanını kaldırma) ----------
+  const baslangicKatmani = document.getElementById("baslangicKatmani");
+  baslangicKatmani.addEventListener("click", ilkEtkilesim);
+  baslangicKatmani.addEventListener("touchstart", ilkEtkilesim, { passive: true });
 
-// Yön hesaplamalarında kullanılacak boş vektörler tanımlanır
-const yonVektoru = new THREE.Vector3();
-const sagVektor = new THREE.Vector3();
+  // VR kontrolcüsü ile "seç" (tetik/trigger) tuşuna basıldığında da müziği başlat
+  const controller0 = renderer.xr.getController(0);
+  const controller1 = renderer.xr.getController(1);
+  controller0.addEventListener("selectstart", ilkEtkilesim);
+  controller1.addEventListener("selectstart", ilkEtkilesim);
+  scene.add(controller0);
+  scene.add(controller1);
 
-// ==========================================
-// 7. PENCERE BOYUTU GÜNCELLEME
-// ==========================================
-window.addEventListener('resize', onWindowResize, false);
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+  // ---------- PENCERE BOYUTU DEĞİŞİRSE ----------
+  window.addEventListener("resize", pencereBoyutuDegisti);
+
+  // ---------- ANİMASYON DÖNGÜSÜ ----------
+  // WebXR uyumluluğu için requestAnimationFrame yerine setAnimationLoop kullanılıyor.
+  renderer.setAnimationLoop(animasyonDongusu);
 }
 
-// ==========================================
-// 8. ANİMASYON VE DÖNGÜ SİSTEMİ (RENDER LOOP)
-// ==========================================
-// WebXR projelerinde klasik requestAnimationFrame yerine setAnimationLoop kullanılması zorunludur
-renderer.setAnimationLoop(function () {
-    
-    // Kameranın o an baktığı yatay yön vektörü hesaplanır
-    camera.getWorldDirection(yonVektoru);
-    yonVektoru.y = 0; // Kullanıcının zemin üzerinde kalması, yukarı uçmaması için dikey eksen sıfırlanır
-    yonVektoru.normalize();
+/* ==========================================================
+   MÜZİK KURULUMU
+   ========================================================== */
+function sesKurulumu() {
+  // AudioListener'ı kameraya ekliyoruz ki 3D sese göre konumlansın (burada basit arka plan müziği kullanıyoruz)
+  sesDinleyici = new THREE.AudioListener();
+  camera.add(sesDinleyici);
 
-    // Kameranın sağına doğru olan yön vektörü hesaplanır
-    sagVektor.crossVectors(camera.up, yonVektoru).normalize();
+  arkaPlanMuzigi = new THREE.Audio(sesDinleyici);
 
-    // Bu karedeki toplam hareket miktarını tutacak vektör
-    const hareket = new THREE.Vector3();
+  const sesYukleyici = new THREE.AudioLoader();
+  sesYukleyici.load("muzik.mp3", function (buffer) {
+    arkaPlanMuzigi.setBuffer(buffer);
+    arkaPlanMuzigi.setLoop(true); // Müzik döngü halinde çalsın
+    arkaPlanMuzigi.setVolume(0.3); // Ses biraz kısık olsun
+  });
+}
 
-    // -- PC Kontrolleri Uygulanır --
-    if (tuslar.ileri) hareket.addScaledVector(yonVektoru, yurumeHizi);
-    if (tuslar.geri) hareket.addScaledVector(yonVektoru, -yurumeHizi);
-    if (tuslar.sol) hareket.addScaledVector(sagVektor, -yurumeHizi);
-    if (tuslar.sag) hareket.addScaledVector(sagVektor, yurumeHizi);
+// Tarayıcı autoplay politikası gereği müzik ancak kullanıcı etkileşiminden sonra başlayabilir
+function ilkEtkilesim() {
+  // Başlangıç katmanını gizle (varsa)
+  const baslangicKatmani = document.getElementById("baslangicKatmani");
+  if (baslangicKatmani) {
+    baslangicKatmani.style.display = "none";
+  }
 
-    // -- Mobil Kontrolü Uygulanır --
-    if (mobilIleri) hareket.addScaledVector(yonVektoru, yurumeHizi);
+  if (!muzikBaslatildiMi && arkaPlanMuzigi && arkaPlanMuzigi.buffer && !arkaPlanMuzigi.isPlaying) {
+    arkaPlanMuzigi.play();
+    muzikBaslatildiMi = true;
+  }
+}
 
-    // -- Meta Quest (VR Joystick) Kontrolleri Uygulanır --
-    const session = renderer.xr.getSession();
-    if (session) {
-        for (const source of session.inputSources) {
-            if (source && source.gamepad) {
-                let xEkseni = 0;
-                let yEkseni = 0;
+/* ==========================================================
+   KLAVYE OLAY FONKSİYONLARI (PC hareketi)
+   ========================================================== */
+function tusaBasildi(olay) {
+  switch (olay.code) {
+    case "KeyW":
+    case "ArrowUp":
+      tuşlar.ileri = true;
+      break;
+    case "KeyS":
+    case "ArrowDown":
+      tuşlar.geri = true;
+      break;
+    case "KeyA":
+    case "ArrowLeft":
+      tuşlar.sol = true;
+      break;
+    case "KeyD":
+    case "ArrowRight":
+      tuşlar.sag = true;
+      break;
+  }
+}
 
-                // Kumanda modeline göre analog çubukların eksen indisleri kontrol edilir
-                if (source.gamepad.axes.length >= 4) {
-                    xEkseni = source.gamepad.axes[2];
-                    yEkseni = source.gamepad.axes[3];
-                } else if (source.gamepad.axes.length >= 2) {
-                    xEkseni = source.gamepad.axes[0];
-                    yEkseni = source.gamepad.axes[1];
-                }
+function tusBirakildi(olay) {
+  switch (olay.code) {
+    case "KeyW":
+    case "ArrowUp":
+      tuşlar.ileri = false;
+      break;
+    case "KeyS":
+    case "ArrowDown":
+      tuşlar.geri = false;
+      break;
+    case "KeyA":
+    case "ArrowLeft":
+      tuşlar.sol = false;
+      break;
+    case "KeyD":
+    case "ArrowRight":
+      tuşlar.sag = false;
+      break;
+  }
+}
 
-                // Yanlışlıkla dokunmaları engellemek için küçük bir eşik değeri (0.2) bırakılır
-                if (Math.abs(xEkseni) > 0.2) {
-                    hareket.addScaledVector(sagVektor, xEkseni * yurumeHizi);
-                }
-                if (Math.abs(yEkseni) > 0.2) {
-                    hareket.addScaledVector(yonVektoru, yEkseni * yurumeHizi);
-                }
-            }
-        }
+/* ==========================================================
+   DOKUNMATİK OLAY FONKSİYONLARI (Mobil hareketi)
+   ========================================================== */
+function dokunmaBasladi() {
+  mobilHareketAktif = true;
+}
+
+function dokunmaBitti() {
+  mobilHareketAktif = false;
+}
+
+/* ==========================================================
+   PENCERE YENİDEN BOYUTLANDIRMA
+   ========================================================== */
+function pencereBoyutuDegisti() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+/* ==========================================================
+   YARDIMCI FONKSİYON: cameraRig'i belirtilen yönde hareket ettir
+   ileriMiktar: kameranın baktığı yönde ilerleme miktarı (+ ileri, - geri)
+   yanMiktar: kameraya göre sağa/sola kayma miktarı (+ sağ, - sol)
+   ========================================================== */
+function rigiHareketEttir(ileriMiktar, yanMiktar) {
+  // Kameranın dünya üzerindeki bakış yönünü al
+  const bakisYonu = new THREE.Vector3();
+  camera.getWorldDirection(bakisYonu);
+  bakisYonu.y = 0; // Yerde yürüme: dikey bileşeni sıfırla
+  bakisYonu.normalize();
+
+  // Sağ vektör (bakış yönüne dik, yatay düzlemde)
+  const sagYonu = new THREE.Vector3();
+  sagYonu.crossVectors(bakisYonu, new THREE.Vector3(0, 1, 0)).normalize();
+
+  // Rig konumunu güncelle
+  cameraRig.position.addScaledVector(bakisYonu, ileriMiktar);
+  cameraRig.position.addScaledVector(sagYonu, yanMiktar);
+}
+
+/* ==========================================================
+   VR KONTROLCÜ JOYSTICK HAREKETİ
+   ========================================================== */
+function vrJoystickHareketi(deltaZaman) {
+  const oturum = renderer.xr.getSession();
+  if (!oturum) return;
+
+  for (const girisKaynagi of oturum.inputSources) {
+    if (!girisKaynagi.gamepad) continue;
+
+    const eksenler = girisKaynagi.gamepad.axes;
+    if (!eksenler || eksenler.length < 2) continue;
+
+    // Quest tarzı kontrolcülerde thumbstick genelde axes[2] ve axes[3]'te,
+    // bazı cihazlarda axes[0] ve axes[1]'de olabilir. İkisini de kontrol ediyoruz.
+    let eksenX = 0;
+    let eksenY = 0;
+
+    if (eksenler.length >= 4) {
+      eksenX = eksenler[2];
+      eksenY = eksenler[3];
+    } else {
+      eksenX = eksenler[0];
+      eksenY = eksenler[1];
     }
 
-    // Herhangi bir cihazdan hareket girdisi gelmişse taşıyıcı rig grubu ve bakış hedefi ötelenir
-    if (hareket.lengthSq() > 0) {
-        cameraRig.position.add(hareket);
-        controls.target.add(hareket);
+    // Küçük joystick titremelerini yok say (deadzone)
+    const olusumEsigi = 0.15;
+    if (Math.abs(eksenX) < olusumEsigi) eksenX = 0;
+    if (Math.abs(eksenY) < olusumEsigi) eksenY = 0;
+
+    if (eksenX !== 0 || eksenY !== 0) {
+      // Gamepad Y ekseni yukarı için negatiftir, bu yüzden ters çeviriyoruz
+      const ileriMiktar = -eksenY * HAREKET_HIZI * deltaZaman;
+      const yanMiktar = eksenX * HAREKET_HIZI * deltaZaman;
+      rigiHareketEttir(ileriMiktar, yanMiktar);
+    }
+  }
+}
+
+/* ==========================================================
+   ANA ANİMASYON DÖNGÜSÜ
+   ========================================================== */
+function animasyonDongusu() {
+  const deltaZaman = clock.getDelta();
+
+  // ---------- PC HAREKETİ (WASD / Yön tuşları) ----------
+  if (!renderer.xr.isPresenting) {
+    let ileriMiktar = 0;
+    let yanMiktar = 0;
+
+    if (tuşlar.ileri) ileriMiktar += HAREKET_HIZI * deltaZaman;
+    if (tuşlar.geri) ileriMiktar -= HAREKET_HIZI * deltaZaman;
+    if (tuşlar.sag) yanMiktar += HAREKET_HIZI * deltaZaman;
+    if (tuşlar.sol) yanMiktar -= HAREKET_HIZI * deltaZaman;
+
+    // ---------- MOBİL HAREKETİ (Basılı tutma = ileri yürüme) ----------
+    if (mobilHareketAktif) {
+      ileriMiktar += HAREKET_HIZI * deltaZaman;
     }
 
-    // Fare veya dokunma ile bakış yönü güncellenir
+    if (ileriMiktar !== 0 || yanMiktar !== 0) {
+      rigiHareketEttir(ileriMiktar, yanMiktar);
+    }
+
+    // Fare ile bakış kontrolünü güncelle (sadece VR dışındayken)
     controls.update();
+  } else {
+    // ---------- VR HAREKETİ (Joystick) ----------
+    vrJoystickHareketi(deltaZaman);
+  }
 
-    // Güncel verilerle sahne ekrana basılır
-    renderer.render(scene, camera);
-});
+  renderer.render(scene, camera);
+}
