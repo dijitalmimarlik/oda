@@ -29,12 +29,39 @@ const HAREKET_HIZI = 2.0;
 let sesDinleyici, arkaPlanMuzigi;
 let muzikBaslatildiMi = false;
 
-init();
+// init() fonksiyonunu try/catch ile çalıştırıyoruz ki bir hata olursa
+// sayfa sessizce donmasın, hatayı hem konsola hem ekrana yazsın.
+try {
+  init();
+} catch (hata) {
+  console.error("Uygulama başlatılırken hata oluştu:", hata);
+  const katman = document.getElementById("baslangicKatmani");
+  if (katman) {
+    katman.style.display = "flex";
+    katman.innerHTML =
+      "<h1>Uygulama başlatılamadı</h1><p>" + hata.message +
+      "<br><br>Muhtemel sebep: Kütüphaneler yüklenmedi, model/ses dosyası eksik ya da sayfa file:// ile açıldı." +
+      "<br>Lütfen F12 ile konsolu kontrol edin.</p>";
+  }
+}
 
 /* ==========================================================
    SAHNE KURULUMU
    ========================================================== */
 function init() {
+  // Kütüphanelerin (CDN üzerinden) gerçekten yüklenip yüklenmediğini kontrol et.
+  // Yüklenmediyse anlamlı bir hata fırlat (aksi halde "THREE is not defined" gibi
+  // belirsiz bir hatayla karşılaşılır ve hiçbir event listener bağlanmaz).
+  if (typeof THREE === "undefined") {
+    throw new Error("THREE.js yüklenemedi. İnternet bağlantınızı ve CDN erişimini kontrol edin.");
+  }
+  if (typeof THREE.GLTFLoader === "undefined") {
+    throw new Error("THREE.GLTFLoader yüklenemedi (CDN script'i eksik olabilir).");
+  }
+  if (typeof THREE.OrbitControls === "undefined") {
+    throw new Error("THREE.OrbitControls yüklenemedi (CDN script'i eksik olabilir).");
+  }
+
   clock = new THREE.Clock();
 
   // ---------- SAHNE ----------
@@ -66,13 +93,6 @@ function init() {
   const ambientIsik = new THREE.AmbientLight(0xffffff, 0.6);
   scene.add(ambientIsik);
 
-   // TEST KÜBÜ
-const geometry = new THREE.BoxGeometry(1, 1, 1);
-const material = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Kırmızı renk
-const cube = new THREE.Mesh(geometry, material);
-cube.position.set(0, 1.6, -2); // Kameranın tam önü
-scene.add(cube);
-
   // ---------- RENDERER ----------
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -83,8 +103,8 @@ scene.add(cube);
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
 
-  // VR giriş butonunu sayfaya ekle
-  document.body.appendChild(THREE.VRButton.createButton(renderer));
+  // VR giriş butonunu sayfaya ekle (kendi basit VRButton implementasyonumuz - bkz. aşağıda)
+  document.body.appendChild(vrButonuOlustur(renderer));
 
   // ---------- FARE İLE BAKIŞ (OrbitControls hilesi) ----------
   // OrbitControls normalde kamerayı bir hedef etrafında DÖNDÜRÜP UZAKLIK ile konumlandırır.
@@ -341,4 +361,105 @@ function animasyonDongusu() {
   }
 
   renderer.render(scene, camera);
+}
+
+/* ==========================================================
+   ÖZEL VR BUTONU (VRButton.js'in bağımsız/sade bir versiyonu)
+   r128'de VRButton yalnızca ES Module (jsm) olarak dağıtıldığından
+   ve build aracı kullanmadığımızdan, aynı işlevi burada kendimiz
+   oluşturuyoruz. WebXR "immersive-vr" oturumunu başlatır/bitirir.
+   ========================================================== */
+function vrButonuOlustur(renderer) {
+  const buton = document.createElement("button");
+
+  // Butonun ortak stil ayarları
+  function stilVer() {
+    Object.assign(buton.style, {
+      position: "absolute",
+      bottom: "20px",
+      left: "50%",
+      transform: "translateX(-50%)",
+      padding: "12px 24px",
+      border: "1px solid #fff",
+      borderRadius: "4px",
+      background: "rgba(0,0,0,0.6)",
+      color: "#fff",
+      font: "13px sans-serif",
+      textAlign: "center",
+      opacity: "0.9",
+      outline: "none",
+      zIndex: "100",
+      cursor: "pointer"
+    });
+  }
+
+  let mevcutOturum = null;
+
+  // VR oturumu bittiğinde çalışır
+  function oturumBittiginde() {
+    mevcutOturum.removeEventListener("end", oturumBittiginde);
+    buton.textContent = "VR'A GİR";
+    mevcutOturum = null;
+  }
+
+  // VR oturumu başarıyla başladığında çalışır
+  async function oturumBaslatildiginda(oturum) {
+    oturum.addEventListener("end", oturumBittiginde);
+    await renderer.xr.setSession(oturum);
+    buton.textContent = "VR'DAN ÇIK";
+    mevcutOturum = oturum;
+  }
+
+  // Buton görünür ve tıklanabilir hale getirilir (WebXR destekleniyorsa)
+  function destekleniyorGoster() {
+    stilVer();
+    buton.style.display = "";
+    buton.textContent = "VR'A GİR";
+
+    buton.onclick = function () {
+      if (mevcutOturum === null) {
+        // Oturum yoksa yeni bir immersive-vr oturumu iste
+        const oturumSecenekleri = {
+          optionalFeatures: ["local-floor", "bounded-floor", "layers"]
+        };
+        navigator.xr
+          .requestSession("immersive-vr", oturumSecenekleri)
+          .then(oturumBaslatildiginda)
+          .catch(function (hata) {
+            console.error("VR oturumu başlatılamadı:", hata);
+          });
+      } else {
+        // Zaten bir oturum varsa, tıklanınca oturumu bitir
+        mevcutOturum.end();
+      }
+    };
+  }
+
+  // WebXR hiç desteklenmiyorsa veya immersive-vr mevcut değilse
+  function desteklenmiyorGoster() {
+    stilVer();
+    buton.style.display = "";
+    buton.style.opacity = "0.5";
+    buton.style.cursor = "default";
+    buton.textContent = "VR DESTEKLENMİYOR";
+    buton.onclick = null;
+  }
+
+  // Tarayıcıda WebXR API'si var mı kontrol et
+  if ("xr" in navigator) {
+    buton.style.display = "none"; // Kontrol bitene kadar gizli kalsın
+    navigator.xr
+      .isSessionSupported("immersive-vr")
+      .then(function (destekleniyor) {
+        destekleniyor ? destekleniyorGoster() : desteklenmiyorGoster();
+      })
+      .catch(function () {
+        desteklenmiyorGoster();
+      });
+  } else {
+    desteklenmiyorGoster();
+    buton.textContent = "WEBXR DESTEKLENMİYOR";
+  }
+
+  return buton;
 }
