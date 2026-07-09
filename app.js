@@ -28,6 +28,7 @@ const HAREKET_HIZI = 2.0;
 // Müzik ile ilgili değişkenler
 let sesDinleyici, arkaPlanMuzigi;
 let muzikBaslatildiMi = false;
+let kullaniciEtkilesimYapildiMi = false; // Kullanıcı en az bir kez tıkladı/dokundu mu?
 
 // init() fonksiyonunu try/catch ile çalıştırıyoruz ki bir hata olursa
 // sayfa sessizce donmasın, hatayı hem konsola hem ekrana yazsın.
@@ -124,25 +125,47 @@ function init() {
 
       // ---------- KAMERAYI MODELE GÖRE OTOMATİK KONUMLANDIR ----------
       // Blender'dan export edilen model sahne merkezinde (0,0,0) olmayabilir
-      // ya da beklenmedik bir ölçekte olabilir. Bu yüzden modelin gerçek
-      // sınırlayıcı kutusunu (bounding box) hesaplayıp kamerayı ona göre
-      // yerleştiriyoruz, sabit bir konuma güvenmek yerine.
-      const sinirKutusu = new THREE.Box3().setFromObject(gltf.scene);
+      // ya da beklenmedik bir ölçekte olabilir (örn. Scale uygulanmamış obje).
+      // Bu yüzden modelin gerçek sınırlayıcı kutusunu (bounding box) hesaplayıp
+      // hem ölçeği hem konumu buna göre düzeltiyoruz.
+      let sinirKutusu = new THREE.Box3().setFromObject(gltf.scene);
+      let boyut = sinirKutusu.getSize(new THREE.Vector3());
+      let enBuyukBoyut = Math.max(boyut.x, boyut.y, boyut.z);
+
+      // ---- OTOMATİK ÖLÇEK DÜZELTMESİ ----
+      // Bir odanın makul boyutu genelde birkaç metredir. Model bundan çok küçük
+      // (örn. cm yerine m karışıklığı, Blender'da uygulanmamış Scale) ya da çok
+      // büyük çıkarsa, geçici bir çözüm olarak otomatik olarak yeniden ölçekliyoruz.
+      // KALICI ÇÖZÜM: Blender'da nesneyi seçip Ctrl+A > Scale (Apply Scale) yapıp
+      // tekrar export etmek. Bu kod sadece o adım atlanmışsa geçici bir kurtarma sağlar.
+      const HEDEF_BOYUT = 6; // metre - tipik bir oda için varsayılan hedef genişlik
+      if (enBuyukBoyut > 0 && (enBuyukBoyut < 0.5 || enBuyukBoyut > 100)) {
+        const olcekFaktoru = HEDEF_BOYUT / enBuyukBoyut;
+        gltf.scene.scale.multiplyScalar(olcekFaktoru);
+        console.warn(
+          "UYARI: Model boyutu anormaldi (" + enBuyukBoyut.toFixed(5) + " birim). " +
+          "Otomatik olarak " + olcekFaktoru.toFixed(2) + "x ölçeklendirildi. " +
+          "Kalıcı çözüm için Blender'da modelin Scale değerini uygulayın (Ctrl+A > Scale) ve tekrar export edin."
+        );
+
+        // Ölçeklendirme sonrası sınır kutusunu tekrar hesapla
+        sinirKutusu = new THREE.Box3().setFromObject(gltf.scene);
+        boyut = sinirKutusu.getSize(new THREE.Vector3());
+        enBuyukBoyut = Math.max(boyut.x, boyut.y, boyut.z);
+      }
+
       const merkez = sinirKutusu.getCenter(new THREE.Vector3());
-      const boyut = sinirKutusu.getSize(new THREE.Vector3());
 
       // Konsola yazdır: model gerçekten nerede ve ne boyutta, kontrol edebilmek için
-      console.log("Model sınır kutusu - merkez:", merkez, "boyut:", boyut);
+      console.log("Model sınır kutusu (düzeltilmiş) - merkez:", merkez, "boyut:", boyut);
 
       // Rig'i modelin merkezine, taban (min.y) seviyesine yerleştir.
       // Göz yüksekliği zaten camera.position.y = 1.6 (rig'e göre yerel) ile sağlanıyor.
       cameraRig.position.set(merkez.x, sinirKutusu.min.y, merkez.z);
 
       // Modelin boyutuna göre kameranın "far" (görüş uzaklığı) değerini güvenli şekilde ayarla.
-      // Çok büyük veya çok küçük ölçekli modellerde nesnelerin kesilmesini/kaybolmasını önler.
-      const enBuyukBoyut = Math.max(boyut.x, boyut.y, boyut.z, 1);
       camera.far = Math.max(1000, enBuyukBoyut * 10);
-      camera.near = enBuyukBoyut / 1000;
+      camera.near = Math.max(0.01, enBuyukBoyut / 1000);
       camera.updateProjectionMatrix();
     },
     function (xhr) {
@@ -192,21 +215,40 @@ function sesKurulumu() {
   arkaPlanMuzigi = new THREE.Audio(sesDinleyici);
 
   const sesYukleyici = new THREE.AudioLoader();
-  sesYukleyici.load("muzik.mp3", function (buffer) {
-    arkaPlanMuzigi.setBuffer(buffer);
-    arkaPlanMuzigi.setLoop(true); // Müzik döngü halinde çalsın
-    arkaPlanMuzigi.setVolume(0.3); // Ses biraz kısık olsun
-  });
+  sesYukleyici.load(
+    "muzik.mp3",
+    function (buffer) {
+      arkaPlanMuzigi.setBuffer(buffer);
+      arkaPlanMuzigi.setLoop(true); // Müzik döngü halinde çalsın
+      arkaPlanMuzigi.setVolume(0.3); // Ses biraz kısık olsun
+
+      // ÖNEMLİ: Dosya, kullanıcı tıkladıktan SONRA yüklenmiş olabilir (ağ gecikmesi).
+      // Kullanıcı zaten etkileşimde bulunduysa (ilkEtkilesim tetiklendiyse),
+      // buffer artık hazır olduğu anda müziği hemen başlat.
+      if (kullaniciEtkilesimYapildiMi && !arkaPlanMuzigi.isPlaying) {
+        arkaPlanMuzigi.play();
+        muzikBaslatildiMi = true;
+      }
+    },
+    undefined,
+    function (hata) {
+      console.error("muzik.mp3 yüklenirken hata oluştu:", hata);
+    }
+  );
 }
 
 // Tarayıcı autoplay politikası gereği müzik ancak kullanıcı etkileşiminden sonra başlayabilir
 function ilkEtkilesim() {
+  kullaniciEtkilesimYapildiMi = true;
+
   // Başlangıç katmanını gizle (varsa)
   const baslangicKatmani = document.getElementById("baslangicKatmani");
   if (baslangicKatmani) {
     baslangicKatmani.style.display = "none";
   }
 
+  // Buffer zaten yüklenmişse hemen çal; yüklenmemişse sesKurulumu() içindeki
+  // callback, buffer hazır olduğunda kullaniciEtkilesimYapildiMi bayrağını görüp çalacak.
   if (!muzikBaslatildiMi && arkaPlanMuzigi && arkaPlanMuzigi.buffer && !arkaPlanMuzigi.isPlaying) {
     arkaPlanMuzigi.play();
     muzikBaslatildiMi = true;
