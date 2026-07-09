@@ -2,7 +2,8 @@
    3D SANAL TUR UYGULAMASI
    - Işınlanma (teleport) YOK, serbest yürüme VAR
    - Çarpışma algılama YOK
-   - PC (WASD + fare) ve Mobil (dokunma) desteği
+   - PC (WASD + fareyi basılı tutup sürükleyerek bakış, Space/Shift ile yükselme-alçalma)
+   - Mobil (dokunma) desteği
    - Arka plan müziği (kullanıcı etkileşimiyle başlar)
    ========================================================== */
 
@@ -11,18 +12,21 @@ let scene, camera, renderer;
 let cameraRig; // Kamerayı içinde barındıran ve hareket ettirilen grup
 let clock;
 
-// Fare ile bakış (Pointer Lock) için yatay (yaw) ve dikey (pitch) açılar (radyan)
+// Fare ile bakış (tıkla-ve-sürükle) için yatay (yaw) ve dikey (pitch) açılar (radyan)
 let yatayAci = 0; // Sağa/sola bakış (Y ekseni etrafında dönüş)
 let dikeyAci = 0; // Yukarı/aşağı bakış (X ekseni etrafında dönüş)
 const FARE_HASSASIYETI = 0.006; // Fare hareketinin bakışa ne kadar yansıyacağı
 const DIKEY_ACI_LIMITI = Math.PI / 2 - 0.05; // Tepe/taban takla atmasını önlemek için sınır
+let fareSurukleniyor = false; // Fare tuşu basılı tutuluyor mu?
 
 // Klavye tuş durumlarını tutan nesne (PC hareketi için)
 const tuşlar = {
   ileri: false,
   geri: false,
   sol: false,
-  sag: false
+  sag: false,
+  yukselme: false, // Space tuşu - yukarı çık
+  alcalma: false // Shift tuşu - aşağı in
 };
 
 // Mobilde parmak basılı mı bilgisini tutan bayrak
@@ -103,25 +107,25 @@ function init() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   // Renklerin doğru (sRGB) görünmesi için gerekli ayar
   renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.domElement.style.cursor = "grab"; // Fare ile sürüklenebilir olduğunu belirten imleç
   document.body.appendChild(renderer.domElement);
 
-  // ---------- FARE İLE BAKIŞ (Pointer Lock) ----------
-  // Kullanıcı canvas'a tıkladığında fareyi "kilitleyip" (Pointer Lock API),
-  // sadece fare hareketini (movementX/movementY) okuyarak bakış açısını
-  // güncelliyoruz. Bu, FPS oyunlarındaki gibi "tıkla ve fareyi oynat" hissi verir.
-  renderer.domElement.addEventListener("click", function () {
-    // Mobilde bu fonksiyon yoktur / anlamsızdır, o yüzden güvenli şekilde kontrol ediyoruz
-    if (renderer.domElement.requestPointerLock) {
-      renderer.domElement.requestPointerLock();
-    }
+  // ---------- FARE İLE BAKIŞ (Tıkla ve Sürükle) ----------
+  // Fare tuşu basılıyken (mousedown) ve hareket ederken (mousemove) bakış açısını
+  // güncelliyoruz. Fare tuşu bırakılınca (mouseup) döndürme durur.
+  renderer.domElement.addEventListener("mousedown", function () {
+    fareSurukleniyor = true;
+    renderer.domElement.style.cursor = "grabbing";
+  });
+
+  // mouseup'ı window üzerinde dinliyoruz ki kullanıcı fareyi canvas dışında
+  // bıraksa bile sürükleme durumu doğru şekilde sıfırlansın
+  window.addEventListener("mouseup", function () {
+    fareSurukleniyor = false;
+    renderer.domElement.style.cursor = "grab";
   });
 
   document.addEventListener("mousemove", fareHareketiyleBak);
-
-  // Pointer lock hatası olursa konsola bilgi ver (örn. tarayıcı izin vermedi)
-  document.addEventListener("pointerlockerror", function () {
-    console.warn("Pointer Lock etkinleştirilemedi. Sayfaya tekrar tıklamayı deneyin.");
-  });
 
   // ---------- 3D MODELİ YÜKLE (oda.glb) ----------
   const yukleyici = new THREE.GLTFLoader();
@@ -263,11 +267,11 @@ function ilkEtkilesim() {
 }
 
 /* ==========================================================
-   FARE HAREKETİYLE BAKIŞ (Pointer Lock aktifken çalışır)
+   FARE HAREKETİYLE BAKIŞ (fare tuşu basılı tutulduğunda çalışır)
    ========================================================== */
 function fareHareketiyleBak(olay) {
-  // Pointer Lock aktif değilse (kullanıcı canvas'a tıklamadıysa) hiçbir şey yapma
-  if (document.pointerLockElement !== renderer.domElement) return;
+  // Fare tuşu basılı tutulmuyorsa (sürükleme yoksa) hiçbir şey yapma
+  if (!fareSurukleniyor) return;
 
   // Fare hareketi kadar yatay ve dikey açıyı güncelle
   yatayAci -= olay.movementX * FARE_HASSASIYETI;
@@ -302,6 +306,14 @@ function tusaBasildi(olay) {
     case "ArrowRight":
       tuşlar.sag = true;
       break;
+    case "Space":
+      olay.preventDefault(); // Sayfanın aşağı kaymasını (scroll) engelle
+      tuşlar.yukselme = true;
+      break;
+    case "ShiftLeft":
+    case "ShiftRight":
+      tuşlar.alcalma = true;
+      break;
   }
 }
 
@@ -322,6 +334,12 @@ function tusBirakildi(olay) {
     case "KeyD":
     case "ArrowRight":
       tuşlar.sag = false;
+      break;
+    case "KeyQ":
+      tuşlar.yukselme = false;
+      break;
+    case "KeyE":
+      tuşlar.alcalma = false;
       break;
   }
 }
@@ -389,6 +407,15 @@ function animasyonDongusu() {
 
   if (ileriMiktar !== 0 || yanMiktar !== 0) {
     rigiHareketEttir(ileriMiktar, yanMiktar);
+  }
+
+  // ---------- YÜKSELME / ALÇALMA (Space / Shift) ----------
+  // Bakış yönünden bağımsız olarak doğrudan dünya Y ekseninde hareket ettiriyoruz.
+  let dikeyHareket = 0;
+  if (tuşlar.yukselme) dikeyHareket += HAREKET_HIZI * deltaZaman;
+  if (tuşlar.alcalma) dikeyHareket -= HAREKET_HIZI * deltaZaman;
+  if (dikeyHareket !== 0) {
+    cameraRig.position.y += dikeyHareket;
   }
 
   renderer.render(scene, camera);
