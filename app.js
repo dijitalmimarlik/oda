@@ -1,8 +1,8 @@
 /* ==========================================================
-   3D / VR SANAL TUR UYGULAMASI
+   3D SANAL TUR UYGULAMASI
    - Işınlanma (teleport) YOK, serbest yürüme VAR
    - Çarpışma algılama YOK
-   - PC (WASD + fare), Mobil (dokunma), VR (joystick) desteği
+   - PC (WASD + fare) ve Mobil (dokunma) desteği
    - Arka plan müziği (kullanıcı etkileşimiyle başlar)
    ========================================================== */
 
@@ -79,9 +79,9 @@ function init() {
   camera.position.set(0, 1.6, 0);
 
   // ---------- KAMERA RIG (HAREKET GRUBU) ----------
-  // Hareket ettirdiğimiz şey kamera değil, bu grup olacak.
-  // VR modunda başörtüsü (headset) kendi konumunu kamera üzerine ekler,
-  // rig'i taşımak "oyuncuyu" sahnede taşımak anlamına gelir.
+  // Hareket ettirdiğimiz şey doğrudan kamera değil, bu grup olacak.
+  // Fare ile bakış (OrbitControls) kamerayı yerinde döndürürken,
+  // WASD/dokunma hareketi rig'in konumunu değiştirir.
   cameraRig = new THREE.Group();
   cameraRig.position.set(0, 0, 3); // Başlangıç konumu (odanın içine bakacak şekilde ayarlanabilir)
   cameraRig.add(camera);
@@ -99,12 +99,7 @@ function init() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   // Renklerin doğru (sRGB) görünmesi için gerekli ayar
   renderer.outputEncoding = THREE.sRGBEncoding;
-  // WebXR (VR) desteğini aç
-  renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
-
-  // VR giriş butonunu sayfaya ekle (kendi basit VRButton implementasyonumuz - bkz. aşağıda)
-  document.body.appendChild(vrButonuOlustur(renderer));
 
   // ---------- FARE İLE BAKIŞ (OrbitControls hilesi) ----------
   // OrbitControls normalde kamerayı bir hedef etrafında DÖNDÜRÜP UZAKLIK ile konumlandırır.
@@ -154,19 +149,12 @@ function init() {
   baslangicKatmani.addEventListener("click", ilkEtkilesim);
   baslangicKatmani.addEventListener("touchstart", ilkEtkilesim, { passive: true });
 
-  // VR kontrolcüsü ile "seç" (tetik/trigger) tuşuna basıldığında da müziği başlat
-  const controller0 = renderer.xr.getController(0);
-  const controller1 = renderer.xr.getController(1);
-  controller0.addEventListener("selectstart", ilkEtkilesim);
-  controller1.addEventListener("selectstart", ilkEtkilesim);
-  scene.add(controller0);
-  scene.add(controller1);
-
   // ---------- PENCERE BOYUTU DEĞİŞİRSE ----------
   window.addEventListener("resize", pencereBoyutuDegisti);
 
   // ---------- ANİMASYON DÖNGÜSÜ ----------
-  // WebXR uyumluluğu için requestAnimationFrame yerine setAnimationLoop kullanılıyor.
+  // setAnimationLoop kullanılıyor (requestAnimationFrame yerine); ileride tekrar
+  // VR eklenmek istenirse bu yapı zaten uyumludur.
   renderer.setAnimationLoop(animasyonDongusu);
 }
 
@@ -289,177 +277,31 @@ function rigiHareketEttir(ileriMiktar, yanMiktar) {
 }
 
 /* ==========================================================
-   VR KONTROLCÜ JOYSTICK HAREKETİ
-   ========================================================== */
-function vrJoystickHareketi(deltaZaman) {
-  const oturum = renderer.xr.getSession();
-  if (!oturum) return;
-
-  for (const girisKaynagi of oturum.inputSources) {
-    if (!girisKaynagi.gamepad) continue;
-
-    const eksenler = girisKaynagi.gamepad.axes;
-    if (!eksenler || eksenler.length < 2) continue;
-
-    // Quest tarzı kontrolcülerde thumbstick genelde axes[2] ve axes[3]'te,
-    // bazı cihazlarda axes[0] ve axes[1]'de olabilir. İkisini de kontrol ediyoruz.
-    let eksenX = 0;
-    let eksenY = 0;
-
-    if (eksenler.length >= 4) {
-      eksenX = eksenler[2];
-      eksenY = eksenler[3];
-    } else {
-      eksenX = eksenler[0];
-      eksenY = eksenler[1];
-    }
-
-    // Küçük joystick titremelerini yok say (deadzone)
-    const olusumEsigi = 0.15;
-    if (Math.abs(eksenX) < olusumEsigi) eksenX = 0;
-    if (Math.abs(eksenY) < olusumEsigi) eksenY = 0;
-
-    if (eksenX !== 0 || eksenY !== 0) {
-      // Gamepad Y ekseni yukarı için negatiftir, bu yüzden ters çeviriyoruz
-      const ileriMiktar = -eksenY * HAREKET_HIZI * deltaZaman;
-      const yanMiktar = eksenX * HAREKET_HIZI * deltaZaman;
-      rigiHareketEttir(ileriMiktar, yanMiktar);
-    }
-  }
-}
-
-/* ==========================================================
    ANA ANİMASYON DÖNGÜSÜ
    ========================================================== */
 function animasyonDongusu() {
   const deltaZaman = clock.getDelta();
 
+  let ileriMiktar = 0;
+  let yanMiktar = 0;
+
   // ---------- PC HAREKETİ (WASD / Yön tuşları) ----------
-  if (!renderer.xr.isPresenting) {
-    let ileriMiktar = 0;
-    let yanMiktar = 0;
+  if (tuşlar.ileri) ileriMiktar += HAREKET_HIZI * deltaZaman;
+  if (tuşlar.geri) ileriMiktar -= HAREKET_HIZI * deltaZaman;
+  if (tuşlar.sag) yanMiktar += HAREKET_HIZI * deltaZaman;
+  if (tuşlar.sol) yanMiktar -= HAREKET_HIZI * deltaZaman;
 
-    if (tuşlar.ileri) ileriMiktar += HAREKET_HIZI * deltaZaman;
-    if (tuşlar.geri) ileriMiktar -= HAREKET_HIZI * deltaZaman;
-    if (tuşlar.sag) yanMiktar += HAREKET_HIZI * deltaZaman;
-    if (tuşlar.sol) yanMiktar -= HAREKET_HIZI * deltaZaman;
-
-    // ---------- MOBİL HAREKETİ (Basılı tutma = ileri yürüme) ----------
-    if (mobilHareketAktif) {
-      ileriMiktar += HAREKET_HIZI * deltaZaman;
-    }
-
-    if (ileriMiktar !== 0 || yanMiktar !== 0) {
-      rigiHareketEttir(ileriMiktar, yanMiktar);
-    }
-
-    // Fare ile bakış kontrolünü güncelle (sadece VR dışındayken)
-    controls.update();
-  } else {
-    // ---------- VR HAREKETİ (Joystick) ----------
-    vrJoystickHareketi(deltaZaman);
+  // ---------- MOBİL HAREKETİ (Basılı tutma = ileri yürüme) ----------
+  if (mobilHareketAktif) {
+    ileriMiktar += HAREKET_HIZI * deltaZaman;
   }
+
+  if (ileriMiktar !== 0 || yanMiktar !== 0) {
+    rigiHareketEttir(ileriMiktar, yanMiktar);
+  }
+
+  // Fare ile bakış kontrolünü güncelle
+  controls.update();
 
   renderer.render(scene, camera);
-}
-
-/* ==========================================================
-   ÖZEL VR BUTONU (VRButton.js'in bağımsız/sade bir versiyonu)
-   r128'de VRButton yalnızca ES Module (jsm) olarak dağıtıldığından
-   ve build aracı kullanmadığımızdan, aynı işlevi burada kendimiz
-   oluşturuyoruz. WebXR "immersive-vr" oturumunu başlatır/bitirir.
-   ========================================================== */
-function vrButonuOlustur(renderer) {
-  const buton = document.createElement("button");
-
-  // Butonun ortak stil ayarları
-  function stilVer() {
-    Object.assign(buton.style, {
-      position: "absolute",
-      bottom: "20px",
-      left: "50%",
-      transform: "translateX(-50%)",
-      padding: "12px 24px",
-      border: "1px solid #fff",
-      borderRadius: "4px",
-      background: "rgba(0,0,0,0.6)",
-      color: "#fff",
-      font: "13px sans-serif",
-      textAlign: "center",
-      opacity: "0.9",
-      outline: "none",
-      zIndex: "100",
-      cursor: "pointer"
-    });
-  }
-
-  let mevcutOturum = null;
-
-  // VR oturumu bittiğinde çalışır
-  function oturumBittiginde() {
-    mevcutOturum.removeEventListener("end", oturumBittiginde);
-    buton.textContent = "VR'A GİR";
-    mevcutOturum = null;
-  }
-
-  // VR oturumu başarıyla başladığında çalışır
-  async function oturumBaslatildiginda(oturum) {
-    oturum.addEventListener("end", oturumBittiginde);
-    await renderer.xr.setSession(oturum);
-    buton.textContent = "VR'DAN ÇIK";
-    mevcutOturum = oturum;
-  }
-
-  // Buton görünür ve tıklanabilir hale getirilir (WebXR destekleniyorsa)
-  function destekleniyorGoster() {
-    stilVer();
-    buton.style.display = "";
-    buton.textContent = "VR'A GİR";
-
-    buton.onclick = function () {
-      if (mevcutOturum === null) {
-        // Oturum yoksa yeni bir immersive-vr oturumu iste
-        const oturumSecenekleri = {
-          optionalFeatures: ["local-floor", "bounded-floor", "layers"]
-        };
-        navigator.xr
-          .requestSession("immersive-vr", oturumSecenekleri)
-          .then(oturumBaslatildiginda)
-          .catch(function (hata) {
-            console.error("VR oturumu başlatılamadı:", hata);
-          });
-      } else {
-        // Zaten bir oturum varsa, tıklanınca oturumu bitir
-        mevcutOturum.end();
-      }
-    };
-  }
-
-  // WebXR hiç desteklenmiyorsa veya immersive-vr mevcut değilse
-  function desteklenmiyorGoster() {
-    stilVer();
-    buton.style.display = "";
-    buton.style.opacity = "0.5";
-    buton.style.cursor = "default";
-    buton.textContent = "VR DESTEKLENMİYOR";
-    buton.onclick = null;
-  }
-
-  // Tarayıcıda WebXR API'si var mı kontrol et
-  if ("xr" in navigator) {
-    buton.style.display = "none"; // Kontrol bitene kadar gizli kalsın
-    navigator.xr
-      .isSessionSupported("immersive-vr")
-      .then(function (destekleniyor) {
-        destekleniyor ? destekleniyorGoster() : desteklenmiyorGoster();
-      })
-      .catch(function () {
-        desteklenmiyorGoster();
-      });
-  } else {
-    desteklenmiyorGoster();
-    buton.textContent = "WEBXR DESTEKLENMİYOR";
-  }
-
-  return buton;
 }
