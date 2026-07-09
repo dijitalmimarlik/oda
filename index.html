@@ -83,13 +83,30 @@
 
   <!-- ============ THREE.JS r128 ve EK KÜTÜPHANELER (CDN) ============ -->
   <!-- Ana Three.js kütüphanesi -->
-  <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <!-- GLTF modelleri yüklemek için -->
-  <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <!-- Fare ile bakış kontrolü için -->
-  <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <!-- WebXR "Enter VR" butonu için -->
-  <script src="https://unpkg.com/three@0.128.0/examples/js/webxr/VRButton.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- NOT: VRButton.js r128'de sadece ES Module (jsm) olarak dağıtıldığı için
+       CDN'den klasik <script> ile yüklenemiyor. Bu yüzden VR butonunu
+       app.js içinde kendimiz oluşturuyoruz (bkz. vrButonuOlustur fonksiyonu). -->
+
+  <!-- Kütüphanelerin gerçekten yüklenip yüklenmediğini erkenden kontrol et.
+       Yüklenmediyse kullanıcıya konsola bakmadan görebileceği bir hata göster. -->
+  <script>
+    window.addEventListener("error", function (olay) {
+      const katman = document.getElementById("baslangicKatmani");
+      if (katman) {
+        katman.style.display = "flex"; // Hata varsa katmanı tekrar göster
+        katman.innerHTML =
+          "<h1>Bir hata oluştu</h1><p>" +
+          (olay.message || "Bilinmeyen hata") +
+          "<br><br>Dosya: " + (olay.filename || "-") + " (satır " + (olay.lineno || "-") + ")" +
+          "<br><br>Lütfen F12 ile konsolu kontrol edin ve sayfayı bir yerel sunucu üzerinden açtığınızdan emin olun (file:// ile değil).</p>";
+      }
+    });
+  </script>
 
   <!-- Kendi uygulama kodumuz -->
   <script src="app.js"></script>
