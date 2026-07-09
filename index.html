@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>3D Sanal Tur - Emlak</title>
+  <!-- Tarayıcının otomatik favicon.ico isteğinin 404 vermesini önlemek için boş bir ikon tanımlıyoruz -->
+  <link rel="icon" href="data:," />
 
   <style>
     /* Sayfa ve canvas tam ekran, kaydırma çubukları olmasın */
@@ -74,7 +76,7 @@
     <h1>Sanal Tura Hoş Geldiniz</h1>
     <p>
       Başlamak için tıklayın / dokunun.<br />
-      PC: WASD veya yön tuşları ile yürüyün, fare ile bakın.<br />
+      PC: Tıkladıktan sonra fareyi hareket ettirerek etrafa bakın (ESC ile çıkabilirsiniz), WASD veya yön tuşları ile yürüyün.<br />
       Mobil: Ekrana basılı tutarak baktığınız yöne ilerleyin.
     </p>
   </div>
@@ -86,8 +88,8 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <!-- GLTF modelleri yüklemek için -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-  <!-- Fare ile bakış kontrolü için -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- NOT: Fare ile bakış artık OrbitControls yerine app.js içindeki kendi
+       Pointer Lock tabanlı sistemimizle sağlanıyor (bkz. fareHareketiyleBak). -->
 
   <!-- Kütüphanelerin gerçekten yüklenip yüklenmediğini erkenden kontrol et.
        Yüklenmediyse kullanıcıya konsola bakmadan görebileceği bir hata göster. -->
