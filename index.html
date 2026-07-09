@@ -69,7 +69,7 @@
 </head>
 <body>
 
-  <!-- Kullanıcı tıklayana/dokunana kadar gösterilen katman: hem VRButton görünsün hem de ses politikası için tıklama alınsın -->
+  <!-- Kullanıcı tıklayana/dokunana kadar gösterilen katman: ses politikası için ilk etkileşimi alır -->
   <div id="baslangicKatmani">
     <h1>Sanal Tura Hoş Geldiniz</h1>
     <p>
@@ -88,9 +88,6 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <!-- Fare ile bakış kontrolü için -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <!-- NOT: VRButton.js r128'de sadece ES Module (jsm) olarak dağıtıldığı için
-       CDN'den klasik <script> ile yüklenemiyor. Bu yüzden VR butonunu
-       app.js içinde kendimiz oluşturuyoruz (bkz. vrButonuOlustur fonksiyonu). -->
 
   <!-- Kütüphanelerin gerçekten yüklenip yüklenmediğini erkenden kontrol et.
        Yüklenmediyse kullanıcıya konsola bakmadan görebileceği bir hata göster. -->
