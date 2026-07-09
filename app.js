@@ -7,9 +7,15 @@
    ========================================================== */
 
 // ---------- GENEL DEĞİŞKENLER ----------
-let scene, camera, renderer, controls;
+let scene, camera, renderer;
 let cameraRig; // Kamerayı içinde barındıran ve hareket ettirilen grup
 let clock;
+
+// Fare ile bakış (Pointer Lock) için yatay (yaw) ve dikey (pitch) açılar (radyan)
+let yatayAci = 0; // Sağa/sola bakış (Y ekseni etrafında dönüş)
+let dikeyAci = 0; // Yukarı/aşağı bakış (X ekseni etrafında dönüş)
+const FARE_HASSASIYETI = 0.006; // Fare hareketinin bakışa ne kadar yansıyacağı
+const DIKEY_ACI_LIMITI = Math.PI / 2 - 0.05; // Tepe/taban takla atmasını önlemek için sınır
 
 // Klavye tuş durumlarını tutan nesne (PC hareketi için)
 const tuşlar = {
@@ -59,9 +65,6 @@ function init() {
   if (typeof THREE.GLTFLoader === "undefined") {
     throw new Error("THREE.GLTFLoader yüklenemedi (CDN script'i eksik olabilir).");
   }
-  if (typeof THREE.OrbitControls === "undefined") {
-    throw new Error("THREE.OrbitControls yüklenemedi (CDN script'i eksik olabilir).");
-  }
 
   clock = new THREE.Clock();
 
@@ -81,7 +84,7 @@ function init() {
 
   // ---------- KAMERA RIG (HAREKET GRUBU) ----------
   // Hareket ettirdiğimiz şey doğrudan kamera değil, bu grup olacak.
-  // Fare ile bakış (OrbitControls) kamerayı yerinde döndürürken,
+  // Fare ile bakış (Pointer Lock) kamerayı yerinde döndürürken,
   // WASD/dokunma hareketi rig'in konumunu değiştirir.
   cameraRig = new THREE.Group();
   cameraRig.position.set(0, 0, 3); // Başlangıç konumu (odanın içine bakacak şekilde ayarlanabilir)
@@ -102,19 +105,23 @@ function init() {
   renderer.outputEncoding = THREE.sRGBEncoding;
   document.body.appendChild(renderer.domElement);
 
-  // ---------- FARE İLE BAKIŞ (OrbitControls hilesi) ----------
-  // OrbitControls normalde kamerayı bir hedef etrafında DÖNDÜRÜP UZAKLIK ile konumlandırır.
-  // Biz mesafeyi (radius) neredeyse sıfıra sabitleyerek bunu "yerinde etrafına bakma" (FPS look)
-  // kontrolüne çeviriyoruz. Böylece kamera pozisyonu sabit kalır, sadece yönü değişir.
-  controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 1.6, -0.01); // Kameranın hemen önünde sabit bir hedef (yerel koordinat)
-  controls.minDistance = 0.01;
-  controls.maxDistance = 0.01;
-  controls.enablePan = false; // Sağ tık ile kaydırmayı kapat
-  controls.enableZoom = false; // Fare tekerleği ile yakınlaşmayı kapat
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.1;
-  controls.rotateSpeed = 0.5;
+  // ---------- FARE İLE BAKIŞ (Pointer Lock) ----------
+  // Kullanıcı canvas'a tıkladığında fareyi "kilitleyip" (Pointer Lock API),
+  // sadece fare hareketini (movementX/movementY) okuyarak bakış açısını
+  // güncelliyoruz. Bu, FPS oyunlarındaki gibi "tıkla ve fareyi oynat" hissi verir.
+  renderer.domElement.addEventListener("click", function () {
+    // Mobilde bu fonksiyon yoktur / anlamsızdır, o yüzden güvenli şekilde kontrol ediyoruz
+    if (renderer.domElement.requestPointerLock) {
+      renderer.domElement.requestPointerLock();
+    }
+  });
+
+  document.addEventListener("mousemove", fareHareketiyleBak);
+
+  // Pointer lock hatası olursa konsola bilgi ver (örn. tarayıcı izin vermedi)
+  document.addEventListener("pointerlockerror", function () {
+    console.warn("Pointer Lock etkinleştirilemedi. Sayfaya tekrar tıklamayı deneyin.");
+  });
 
   // ---------- 3D MODELİ YÜKLE (oda.glb) ----------
   const yukleyici = new THREE.GLTFLoader();
@@ -256,6 +263,25 @@ function ilkEtkilesim() {
 }
 
 /* ==========================================================
+   FARE HAREKETİYLE BAKIŞ (Pointer Lock aktifken çalışır)
+   ========================================================== */
+function fareHareketiyleBak(olay) {
+  // Pointer Lock aktif değilse (kullanıcı canvas'a tıklamadıysa) hiçbir şey yapma
+  if (document.pointerLockElement !== renderer.domElement) return;
+
+  // Fare hareketi kadar yatay ve dikey açıyı güncelle
+  yatayAci -= olay.movementX * FARE_HASSASIYETI;
+  dikeyAci -= olay.movementY * FARE_HASSASIYETI;
+
+  // Dikey açıyı sınırla (baş üstü/altı takla atmasını önle)
+  dikeyAci = Math.max(-DIKEY_ACI_LIMITI, Math.min(DIKEY_ACI_LIMITI, dikeyAci));
+
+  // Kameranın rotasyonunu uygula. 'YXZ' sırası önemli: önce yatay (Y), sonra dikey (X)
+  // dönüşü uygulanır, böylece FPS tarzı bakış doğru çalışır (gimbal lock olmaz).
+  camera.rotation.set(dikeyAci, yatayAci, 0, "YXZ");
+}
+
+/* ==========================================================
    KLAVYE OLAY FONKSİYONLARI (PC hareketi)
    ========================================================== */
 function tusaBasildi(olay) {
@@ -364,9 +390,6 @@ function animasyonDongusu() {
   if (ileriMiktar !== 0 || yanMiktar !== 0) {
     rigiHareketEttir(ileriMiktar, yanMiktar);
   }
-
-  // Fare ile bakış kontrolünü güncelle
-  controls.update();
 
   renderer.render(scene, camera);
 }
